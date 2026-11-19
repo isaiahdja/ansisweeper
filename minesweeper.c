@@ -29,7 +29,7 @@
 
 #define CSI(x, t) "\x1B["#x#t
 #define SGR(x) CSI(x, m)
-const char * const fg_lut[] = {
+const char * const FG_LUT[] = {
     SGR(94), /* 1 - Bright blue */
     SGR(32), /* 2 - Green */
     SGR(91), /* 3 - Bright red */
@@ -41,12 +41,11 @@ const char * const fg_lut[] = {
 };
 
 
-typedef enum state {
-    INACTIVE,
-    READY,
-    ACTIVE,
-    WIN,
-    LOSE
+typedef enum g_state {
+    READY_STATE,
+    ACTIVE_STATE,
+    WIN_STATE,
+    LOSE_STATE
 } state_t;
 
 typedef struct pos_list {
@@ -84,31 +83,31 @@ pos_list_t adj_pos(unsigned char pos, unsigned char incl) {
 }
 
 
-unsigned short board[BOARD_SIZE];
-unsigned char rem;
-short flags;
-unsigned char c_pos;
-state_t state;
+unsigned short g_board[BOARD_SIZE];
+unsigned char g_rem;
+short g_flags;
+unsigned char g_c_pos;
+state_t g_state;
 
 
 void init() {
     unsigned short i;
     for (i = 0; i != BOARD_SIZE; i++) {
-        board[i] = 0;
+        g_board[i] = 0;
     }
 
-    rem = BOARD_SIZE - NUM_MINES;
-    flags = NUM_MINES;
-    c_pos = 0;
-    state = READY;
+    g_rem = BOARD_SIZE - NUM_MINES;
+    g_flags = NUM_MINES;
+    g_c_pos = 0;
+    g_state = READY_STATE;
 }
 
 void generate() {
-    pos_list_t c_adjs = adj_pos(c_pos, 1);
+    pos_list_t c_adjs = adj_pos(g_c_pos, 1);
     unsigned char n = BOARD_SIZE - c_adjs.len;
     unsigned char i;
     for (i = 0; i < c_adjs.len; i++) {
-        SET_RESERVED(board[c_adjs.pos[i]]);
+        SET_RESERVED(g_board[c_adjs.pos[i]]);
     }
 
     srand(time(NULL));
@@ -117,7 +116,7 @@ void generate() {
         unsigned char r = rand() % n;
         unsigned char m = 0;
         while (1) {
-            if (!IS_RESERVED(board[m])) {
+            if (!IS_RESERVED(g_board[m])) {
                 if (r == 0) {
                     break;
                 }
@@ -126,8 +125,8 @@ void generate() {
             m++;
         }
 
-        SET_MINE(board[m]);
-        SET_RESERVED(board[m]);
+        SET_MINE(g_board[m]);
+        SET_RESERVED(g_board[m]);
         n--;
 
         /* Increment neighbors. */
@@ -135,7 +134,7 @@ void generate() {
             pos_list_t m_adjs = adj_pos(m, 0);
             unsigned char j;
             for (j = 0; j < m_adjs.len; j++) {
-                board[m_adjs.pos[j]]++;
+                g_board[m_adjs.pos[j]]++;
             }
         }
     }
@@ -150,17 +149,17 @@ void draw() {
     printf("Minesweeper\n");
     printf("wasd : move | enter : reveal | f : flag | r : reset | q : quit\n");
 
-    /* Draw board.*/
+    /* Draw g_board.*/
     {
         unsigned short y, x;
 
         for (y = 0; y < BOARD_DIM; y++) {
             for (x = 0; x < BOARD_DIM; x++) {
                 unsigned char pos = y * BOARD_DIM + x;
-                unsigned short val = board[pos];
+                unsigned short val = g_board[pos];
 
                 /* Highlight game cursor. */
-                if (state != WIN && pos == c_pos) {
+                if (g_state != WIN_STATE && pos == g_c_pos) {
                     printf(SGR(7));
                 }
 
@@ -188,7 +187,7 @@ void draw() {
                             if (adj_m == 0) {
                                 printf(SGR(37)"   ");
                             } else {
-                                printf("%s %u ", fg_lut[adj_m - 1], adj_m);
+                                printf("%s %u ", FG_LUT[adj_m - 1], adj_m);
                             }
                         }
                     }
@@ -214,11 +213,11 @@ void draw() {
 
     /* Draw footer. */
 
-    printf("%d / %u"CSI(0, K)"\n", flags, NUM_MINES);
+    printf("%d / %u"CSI(0, K)"\n", g_flags, NUM_MINES);
 
-    if (state == WIN) {
+    if (g_state == WIN_STATE) {
         printf("Win\n");
-    } else if (state == LOSE) {
+    } else if (g_state == LOSE_STATE) {
         printf("Lose\n");
     } else {
         printf(CSI(0, K)"\n");
@@ -229,24 +228,24 @@ void reveal() {
     /* Reveal. */
 
     if (
-        !IS_REVEALED(board[c_pos]) &&
-        !IS_FLAGGED(board[c_pos])
+        !IS_REVEALED(g_board[g_c_pos]) &&
+        !IS_FLAGGED(g_board[g_c_pos])
     ) {
-        if (state == READY) {
+        if (g_state == READY_STATE) {
             generate();
 
-            state = ACTIVE;
+            g_state = ACTIVE_STATE;
         }
 
         /* Check loss condition. */
-        if (IS_MINE(board[c_pos])) {
+        if (IS_MINE(g_board[g_c_pos])) {
             unsigned short i;
-            state = LOSE;
+            g_state = LOSE_STATE;
 
             /* Reveal all tiles. */
 
             for (i = 0; i < BOARD_SIZE; i++) {
-                SET_REVEALED(board[i]);
+                SET_REVEALED(g_board[i]);
             }
         } else {
             /* Reveal. */
@@ -254,58 +253,58 @@ void reveal() {
             unsigned char queue[BOARD_SIZE];
             unsigned char qp = 0;
 
-            SET_REVEALED(board[c_pos]);
-            rem--;
-            queue[qp++] = c_pos;
+            SET_REVEALED(g_board[g_c_pos]);
+            g_rem--;
+            queue[qp++] = g_c_pos;
 
             while (qp > 0) {
                 unsigned char pos = queue[--qp];
                 pos_list_t adjs = adj_pos(pos, 0);
                 unsigned char i;
 
-                if (ADJ_MINES(board[pos]) > 0) {
+                if (ADJ_MINES(g_board[pos]) > 0) {
                     continue;
                 }
 
                 for (i = 0; i < adjs.len; i++) {
                     unsigned char adj = adjs.pos[i];
                     if (
-                        !IS_REVEALED(board[adj]) &&
-                        !IS_FLAGGED(board[adj])
+                        !IS_REVEALED(g_board[adj]) &&
+                        !IS_FLAGGED(g_board[adj])
                     ) {
-                        SET_REVEALED(board[adj]);
-                        rem--;
+                        SET_REVEALED(g_board[adj]);
+                        g_rem--;
                         queue[qp++] = adj;
                     }
                 }
             }
 
             /* Check win condition. */
-            if (rem == 0) {
+            if (g_rem == 0) {
                 unsigned short i;
-                state = WIN;
+                g_state = WIN_STATE;
 
                 /* Flag all mines. */
 
                 for (i = 0; i < BOARD_SIZE; i++) {
-                    if (IS_MINE(board[i])) {
-                        SET_FLAGGED(board[i]);
+                    if (IS_MINE(g_board[i])) {
+                        SET_FLAGGED(g_board[i]);
                     }
                 }
-                flags = 0;
+                g_flags = 0;
             }
         }
     }
 }
 
 void flag() {
-    if (!IS_REVEALED(board[c_pos])) {
-        if (IS_FLAGGED(board[c_pos])) {
-            SET_UNFLAGGED(board[c_pos]);
-            flags++;
+    if (!IS_REVEALED(g_board[g_c_pos])) {
+        if (IS_FLAGGED(g_board[g_c_pos])) {
+            SET_UNFLAGGED(g_board[g_c_pos]);
+            g_flags++;
         } else {
-            SET_FLAGGED(board[c_pos]);
-            flags--;
+            SET_FLAGGED(g_board[g_c_pos]);
+            g_flags--;
         }
     }
 }
@@ -351,15 +350,15 @@ int main() {
             break;
         }
 
-        if (state < WIN) {
-            if (key == 'w' && c_pos >= BOARD_DIM) {
-                c_pos -= BOARD_DIM;
-            } else if (key == 'a' && c_pos % BOARD_DIM > 0) {
-                c_pos--;
-            } else if (key == 's' && c_pos < BOARD_SIZE - BOARD_DIM) {
-                c_pos += BOARD_DIM;
-            } else if (key == 'd' && c_pos % BOARD_DIM < BOARD_DIM - 1) {
-                c_pos++;
+        if (g_state < WIN_STATE) {
+            if (key == 'w' && g_c_pos >= BOARD_DIM) {
+                g_c_pos -= BOARD_DIM;
+            } else if (key == 'a' && g_c_pos % BOARD_DIM > 0) {
+                g_c_pos--;
+            } else if (key == 's' && g_c_pos < BOARD_SIZE - BOARD_DIM) {
+                g_c_pos += BOARD_DIM;
+            } else if (key == 'd' && g_c_pos % BOARD_DIM < BOARD_DIM - 1) {
+                g_c_pos++;
             } else if (key == '\n') {
                 reveal();
             } else if (key == 'f') {
