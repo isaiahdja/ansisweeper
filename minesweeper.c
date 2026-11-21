@@ -27,9 +27,15 @@
 #define SET_RESERVED(x) x |= 0x0800
 
 
+#define VBUF_SIZE 4096
+char vbuf[VBUF_SIZE];
+
 #define CSI(x, t) "\x1B["#x#t
 #define SGR(x) CSI(x, m)
+
 const char * const FG_LUT[] = {
+    NULL,
+
     SGR(94), /* 1 - Bright blue */
     SGR(32), /* 2 - Green */
     SGR(91), /* 3 - Bright red */
@@ -41,37 +47,29 @@ const char * const FG_LUT[] = {
 };
 
 
-typedef enum g_state {
-    READY_STATE,
-    ACTIVE_STATE,
-    WIN_STATE,
-    LOSE_STATE
-} state_t;
-
 typedef struct pos_list {
     unsigned char pos[9];
     unsigned char len;
 } pos_list_t;
 
-
 pos_list_t adj_pos(unsigned char pos, unsigned char incl) {
     pos_list_t adjs;
-    unsigned char y, x;
-    char dy, dx;
+    unsigned char i, j;
+    char di, dj;
 
-    y = pos / BOARD_DIM;
-    x = pos % BOARD_DIM;
+    i = pos / BOARD_DIM;
+    j = pos % BOARD_DIM;
 
     adjs.len = 0;
 
-    for (dy = -1; dy <= 1; dy++) {
-        short ny = y + dy;
-        if (ny >= 0 && ny < BOARD_DIM) {
-            for (dx = -1; dx <= 1; dx++) {
-                if (incl || !(dy == 0 && dx == 0)) {
-                    short nx = x + dx;
-                    if (nx >= 0 && nx < BOARD_DIM) {
-                        unsigned char adj = ny * BOARD_DIM + nx;
+    for (di = -1; di <= 1; di++) {
+        short ni = i + di;
+        if (ni >= 0 && ni < BOARD_DIM) {
+            for (dj = -1; dj <= 1; dj++) {
+                if (incl || !(di == 0 && dj == 0)) {
+                    short nj = j + dj;
+                    if (nj >= 0 && nj < BOARD_DIM) {
+                        unsigned char adj = ni * BOARD_DIM + nj;
                         adjs.pos[adjs.len++] = adj;
                     }
                 }
@@ -87,14 +85,16 @@ unsigned short g_board[BOARD_SIZE];
 unsigned char g_rem;
 short g_flags;
 unsigned char g_c_pos;
-state_t g_state;
+enum {
+    READY_STATE,
+    ACTIVE_STATE,
+    WIN_STATE,
+    LOSE_STATE
+} g_state;
 
 
 void init() {
-    unsigned short i;
-    for (i = 0; i != BOARD_SIZE; i++) {
-        g_board[i] = 0;
-    }
+    memset(g_board, 0, sizeof(g_board));
 
     g_rem = BOARD_SIZE - NUM_MINES;
     g_flags = NUM_MINES;
@@ -141,87 +141,94 @@ void generate() {
 }
 
 void draw() {
-    /* Reset terminal cursor. */
-    printf(CSI(, H));
+    /*
+    Reset terminal cursor.
+    Clear screen. 
+    */
+    printf(CSI(, H)CSI(,J));
 
     /* Draw header. */
+    printf("%d / %u"CSI(0, K)"\n", g_flags, NUM_MINES);
 
-    printf("Minesweeper\n");
-    printf("wasd : move | enter : reveal | f : flag | r : reset | q : quit\n");
-
-    /* Draw g_board.*/
+    /* Draw board.*/
     {
-        unsigned short y, x;
+        unsigned short i, j;
 
-        for (y = 0; y < BOARD_DIM; y++) {
-            for (x = 0; x < BOARD_DIM; x++) {
-                unsigned char pos = y * BOARD_DIM + x;
+        for (i = 0; i < BOARD_DIM; i++) {
+            for (j = 0; j < BOARD_DIM; j++) {
+                unsigned char pos = i * BOARD_DIM + j;
                 unsigned short val = g_board[pos];
 
                 /* Highlight game cursor. */
-                if (g_state != WIN_STATE && pos == g_c_pos) {
+                unsigned char highlight = g_state < WIN_STATE && pos == g_c_pos;
+                if (highlight) {
+                    /* Invert. */
                     printf(SGR(7));
                 }
 
                 if (IS_REVEALED(val)) {
                     if (IS_FLAGGED(val)) {
                         if (IS_MINE(val)) {
-                            /* Correct (regular) flag. */
+                            /* Correct flag. */
 
-                            printf(SGR(35;100)" F ");
+                            printf(SGR(30;47)"[F]");
                         } else {
                             /* Incorrect flag.*/
 
-                            printf(SGR(31;40)" X ");
+                            printf(SGR(91;40)" X ");
                         }
                     } else {
                         if (IS_MINE(val)) {
                             /* Regular mine. */
 
-                            printf(SGR(31;40)" M ");
+                            printf(SGR(30;41)" M ");
                         } else {
                             /* Number tile. */
 
                             unsigned char adj_m = ADJ_MINES(val);
+
                             printf(SGR(40));
+
                             if (adj_m == 0) {
-                                printf(SGR(37)"   ");
+                                printf("   ");
                             } else {
-                                printf("%s %u ", FG_LUT[adj_m - 1], adj_m);
+                                printf("%s %u ", FG_LUT[adj_m], adj_m);
                             }
                         }
                     }
                 } else {
                     if (IS_FLAGGED(val)) {
                         /* Regular flag. */
-
-                        printf(SGR(35;100)" F ");
+                        printf(SGR(30;47)"[F]");
                     } else {
                         /* Covered tile. */
-                        
-                        printf(SGR(37;100)"   ");
+                        printf(SGR(30;47)"[ ]");
                     }
                 }
 
-                /* Reset. */
-                printf(SGR(0));
+                if (highlight) {
+                    /* Reset. */
+                    printf(SGR(0));
+                }
             }
             
-            printf("\n");
+            /*
+            Reset.
+            Move cursor to the beginning of the next line.
+            */
+            printf(SGR(0)CSI(,E));
         }
     }
 
     /* Draw footer. */
 
-    printf("%d / %u"CSI(0, K)"\n", g_flags, NUM_MINES);
-
     if (g_state == WIN_STATE) {
-        printf("Win\n");
+        printf("Win");
     } else if (g_state == LOSE_STATE) {
-        printf("Lose\n");
-    } else {
-        printf(CSI(0, K)"\n");
+        printf("Lose");
     }
+
+    fflush(stdout);
 }
 
 void reveal() {
@@ -322,6 +329,8 @@ int main() {
     raw_term.c_cc[VTIME] = 0;
 
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw_term);
+
+    setvbuf(stdout, vbuf, _IOFBF, VBUF_SIZE);
 
     /* Enable alternative buffer */
     printf(CSI(?1049, h));
